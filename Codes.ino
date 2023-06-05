@@ -1,14 +1,12 @@
-#include <Servo.h>
-/*
-  Timer 0: PWM 4、13
-  Timer 1: PWM 11、12
-  Timer 2: PWM 9、10
-  Timer 3: PWM 2、3、5
-  Timer 4: PWM 6、7、8*/
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
 
-// servoA will share its timer with motor C
-// timer3 -> pin235
-// timer0 -> pin4
+// default address 0x40
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+#define SERVOMIN  150 // this is the 'minimum' pulse length count (out of 4096)
+#define SERVOMAX  650 // this is the 'maximum' pulse length count (out of 4096)
+
 //Motor A
 #define PWMA 2  //Speed control
 #define AIN1 22 //Direction
@@ -19,159 +17,313 @@
 #define BIN2 25 //Direction
 //Motor C
 #define PWMC 4 //Speed control
-#define CIN1 27 //Direction
-#define CIN2 26 //Direction
+#define CIN1 26 //Direction
+#define CIN2 27 //Direction
 //Motor D
 #define PWMD 5 //Speed control
-#define DIN1 29 //Direction
-#define DIN2 28 //Direction
-//Servo A
-#define servoA 13 // timer0
-Servo MG_servoA;
-//Servo B
-#define servoB 12 // timer1
-Servo MG_servoB;
-//Servo C
-#define servoC 10 // timer2
-Servo MG_servoC;
-//Servo D
-#define servoD 8 // timer4
-Servo MG_servoD;
-//Anti_rollover_RHS_sg90
-#define sg_R 44
-Servo sgServo_R;
-//Anti_rollover_LHS_sg90
-#define sg_L 45
-Servo sgServo_L;
+#define DIN1 28 //Direction
+#define DIN2 29 //Direction
 
+//button
+#define buttonPin 30
+
+int buttonState = 0;
 int direct1 = 999;
 int direct2 = 999;
 int direct3 = 999;
 int direct4 = 999;
 const int roboSpeed = 78; // 0~255
-const int CLOCKWISE = 500; // Servo rorate CW
-const int STOP = 1500; // Servo stop
-const int C_CLOCKWISE = 2000; // Servo rorate CCW
 const int motorStep = 1;
 unsigned long currentTime = 0; // cur time
 unsigned long previousTime = 0; // pre time
-bool anti_roll_extend_flag = false;
 bool run_flag = true;
-
+bool mission_flag = false;
 
 void setup() {
-  // motor A
-  pinMode(PWMA, OUTPUT);
-  pinMode(AIN1, OUTPUT);
-  pinMode(AIN2, OUTPUT);
-  // motor B
-  pinMode(PWMB, OUTPUT);
-  pinMode(BIN1, OUTPUT);
-  pinMode(BIN2, OUTPUT);
-  // motor C
-  pinMode(PWMC, OUTPUT);
-  pinMode(CIN1, OUTPUT);
-  pinMode(CIN2, OUTPUT);
-  // motor D
-  pinMode(PWMD, OUTPUT);
-  pinMode(DIN1, OUTPUT);
-  pinMode(DIN2, OUTPUT);
 
-  // servo A
-  MG_servoA.attach(servoA);
-  // servo B
-  MG_servoB.attach(servoB);
-  // servo C
-  MG_servoC.attach(servoC);
-  // servo D
-  MG_servoD.attach(servoD);
+  pwm.begin();
+  pwm.setPWMFreq(60);  // Analog servos run at ~60 Hz updates
 
-  sgServo_R.attach(sg_R);
-
-  sgServo_L.attach(sg_L);
+  pinMode(buttonPin, INPUT_PULLUP);
 
   Serial.begin(9600);
+
 }
 
 
 void loop() {
-  if (run_flag == true) {
-    for (int i = 0; i < 1; i++) {
-      //antiRollover(1300); // antiRollOver protection retract/extend
-      initialArm();
-      //mission();
-      pickUp();
-      //fakeDelay(3000);
-      //putBalls();
-      if (i == 0) {
-        fakeDelay(5000);
-        //temp_pickBackInit();
-        //initialArm();
-        //pickUp();
-        run_flag = false;
-        //stop(direct1, direct2, direct3, direct4);
-      }
+
+  missionButton();
+  
+  if (mission_flag == true) {
+    fakeDelay(3000);
+
+    while (run_flag == true) {
+      //run_flag = false;
+      mission();
     }
+
+  }
+  else {
+
+    initialArm();
+    stop(direct1, direct2, direct3, direct4);
   }
 
+
+  /*if (run_flag == true) {
+
+    for (int i = 0; i < 1; i ++) {
+
+      //mission();
+      //initialArm();
+
+      //temp();
+       move_backward(150);
+
+        move_right(800);
+
+        rotate_ccw(1685);
+
+        pickUP_squash();
+
+        move_left(1550);
+
+        pwm.setPWM(3, 0, angleToPulse(50)); //100
+
+        move_forward(150);
+
+        fakeDelay(500);
+
+        move_right(350);
+
+        pwm.setPWM(0, 0, angleToPulse(130)); //100
+
+        // 前往silo
+        move_forward(1380);
+
+        // 调节大臂
+        pwm.setPWM(0, 0, angleToPulse(150)); //100
+        pwm.setPWM(2, 0, angleToPulse(0));
+
+        // 向silo放置squash ball
+        move_left(1470);
+
+        pwm.setPWM(1, 0, angleToPulse(200));
+
+        for (int i = 50; i < 230; i ++ )
+        {
+        pwm.setPWM(3, 0, angleToPulse(i));
+        }
+
+
+      if (i == 0)
+      {
+        fakeDelay(5000);
+        stop(direct1, direct2, direct3, direct4);
+        temp();
+        run_flag = false;
+      }
+
+    }
+    }
+
+  */
 }
 
-void temp_pickBackInit() {
 
-  MG_servoB.write(0);
-  MG_servoC.write(0);
-  MG_servoD.write(0);
-  servoAA(0, 200, 80);
+void temp() {
+
+  pwm.setPWM(0, 0, angleToPulse(130)); //100
+  pwm.setPWM(1, 0, angleToPulse(130)); //100
+  pwm.setPWM(2, 0, angleToPulse(105)); //140
+  pwm.setPWM(3, 0, angleToPulse(205)); //100
 }
+
+void missionButton() {
+
+  buttonState = digitalRead(buttonPin);
+
+  if (buttonState == LOW) {  // 如果按钮被按下
+    mission_flag = true;
+  }
+  else
+  { // 如果按钮未被按下
+    mission_flag = false;
+  }
+}
+
 
 void initialArm() {
-  //MG_servoA.write(20);
-  //MG_servoB.write(0);
-  servoAA(1, 400, 80);
-  servoBB(0, 0, 5);
-  MG_servoC.write(0);
-  MG_servoD.write(0);
+  pwm.setPWM(0, 0, angleToPulse(0));
+  pwm.setPWM(1, 0, angleToPulse(230));
+  pwm.setPWM(2, 0, angleToPulse(150));
+  pwm.setPWM(3, 0, angleToPulse(255)); // 50 ~ 290
 }
 
 void pickUp() {
+  pwm.setPWM(3, 0, angleToPulse(60));
+  fakeDelay(500);
+  pwm.setPWM(0, 0, angleToPulse(150));
+  fakeDelay(500);
+  pwm.setPWM(2, 0, angleToPulse(140));
+  fakeDelay(500);
+  pwm.setPWM(1, 0, angleToPulse(230));
+}
 
-  //MG_servoA.write(20);
-  //MG_servoB.write(20);
-  
-  servoBB(1, 300, 5);
-  MG_servoC.write(30);
-  MG_servoD.write(95);
-  //fakeDelay(500);
-  servoAA(1, 100, 20);
+void lvlUpBalls() {
+
+  pwm.setPWM(3, 0, angleToPulse(50));
+  fakeDelay(500);
+
+  move_right(300);
+  stop(direct1, direct2, direct3, direct4);
+
+  for (int i = 150; i > 100; i--) {
+
+    pwm.setPWM(0, 0, angleToPulse(i)); //150 -> 100
+  }
+
+  //pwm.setPWM(3, 0, angleToPulse(100));
+  pwm.setPWM(1, 0, angleToPulse(190));
+  pwm.setPWM(2, 0, angleToPulse(140));
+
 }
 
 void putBalls() {
-  servoAA(1, 500, 100);
+  bool numFour = false;
 
-  MG_servoB.write(180);
+  for (int i = 100; i < 120; i += 5) {
+    pwm.setPWM(0, 0, angleToPulse(i)); //100
+  }
 
-  MG_servoC.write(60);
-  fakeDelay(1000);
-  MG_servoD.write(180);
+  for (int j = 190; j > 140; j -= 5) {
+    pwm.setPWM(1, 0, angleToPulse(j)); //100
+  }
+
+  for (int k = 140; k > 100; k -= 5) {
+    pwm.setPWM(2, 0, angleToPulse(k)); //140
+
+  }
+
+  fakeDelay(2000);
+  pwm.setPWM(3, 0, angleToPulse(180)); //100
+
+}
+
+void pickUP_squash() {
+  pwm.setPWM(3, 0, angleToPulse(60));
+  fakeDelay(500);
+  pwm.setPWM(0, 0, angleToPulse(150));
+  fakeDelay(100);
+  pwm.setPWM(2, 0, angleToPulse(140));
+  fakeDelay(100);
+  pwm.setPWM(1, 0, angleToPulse(230));
 }
 
 void mission() {
 
-  move_forward(1850);
-  rotate_cw(80);
+
+  // 初始化arm
+  initialArm();
+
+  // 前进与silo平行
+  //move_forward(1600);
+  move_forward(1750); // 1680
+  //rotate_ccw(40);
   stop(direct1, direct2, direct3, direct4);
   fakeDelay(500);
+
+  // 抓取球
   pickUp();
 
-  move_left(1400);
+  // 前进
+  move_left(1500);
   stop(direct1, direct2, direct3, direct4);
   fakeDelay(500);
-  /*
-    rotate_cw(1570);
-    stop(direct1, direct2, direct3, direct4);
-    fakeDelay(500);
 
-    move_left(800);*/
+  // 抬升球体
+  lvlUpBalls();
+
+  // 放置球体姿态
+  putBalls();
+
+  //moving to silo
+  move_left(1500);
+
+  //moving forward
+  move_forward(210);
+  stop(direct1, direct2, direct3, direct4);
+
+  //压低pipe
+  pwm.setPWM(0, 0, angleToPulse(130)); //100
+  pwm.setPWM(1, 0, angleToPulse(130)); //100
+
+  fakeDelay(1000);
+  for (int i = 180; i < 205; i++)
+  {
+    pwm.setPWM(3, 0, angleToPulse(i)); //100
+  }
+
+  /*--------------------------------------------------TENNIS BALL DONE-------------------------------------*/
+  fakeDelay(1500);
+
+  move_backward(150); //150 full charge 
+
+  move_right(800);
+
+  rotate_ccw(1695); // 1685 full charge
+
+  pickUP_squash();
+
+  move_left(1550);
+
+  pwm.setPWM(3, 0, angleToPulse(50)); //100
+
+  move_forward(150);
+
+  fakeDelay(500);
+
+  move_right(350);
+
+  pwm.setPWM(0, 0, angleToPulse(130)); //100
+
+  // 前往silo
+  move_forward(1350); // 1380 full charge
+
+  // 调节大臂
+  pwm.setPWM(0, 0, angleToPulse(150)); //100
+  pwm.setPWM(2, 0, angleToPulse(0));
+
+  // 向silo放置squash ball
+  move_left(1470);
+
+  pwm.setPWM(1, 0, angleToPulse(200));
+
+  fakeDelay(500);
+  for (int i = 50; i < 240; i++ )
+  {
+    pwm.setPWM(3, 0, angleToPulse(i));
+  }
+
+    /*--------------------------------------------------TENNIS BALL DONE-------------------------------------*/
+  fakeDelay(1500);
+  
+  move_right(777);
+  move_forward(300);
+  initialArm();
+  
+  run_flag = false;
+}
+
+
+/*-----------------------------------------------------------------------------------------*/
+
+int angleToPulse(int ang) {
+  int pulse = map(ang, 0, 270, SERVOMIN, SERVOMAX); // map angle of 0 to 180 to Servo min and Servo max
+  //Serial.print("Angle: "); Serial.print(ang);
+  //Serial.print(" pulse: "); Serial.println(pulse);
+  return pulse;
 }
 
 void fakeDelay(int delayTime) {
@@ -187,140 +339,6 @@ void fakeDelay(int delayTime) {
     currentTime = millis(); // update cur
   }
   previousTime = currentTime; // update pre
-}
-/*
-  void servoAA(int preAngle, int nextAngle) { //0 for CW; 1 for CCW
-  int pos = 0;
-  if (nextAngle > preAngle) {
-    for (pos = preAngle; pos <= nextAngle; pos += motorStep) { // goes from 0 degrees to 180 degrees
-      // in steps of 1 degree
-      MG_servoA.write(pos);              // tell servo to go to position in variable 'pos'
-      delay(15);                       // waits 15ms for the servo to reach the position
-    }
-  }
-  else {
-    for (pos = preAngle; pos >= nextAngle; pos -= motorStep) { // goes from 180 degrees to 0 degrees
-      MG_servoA.write(pos);              // tell servo to go to position in variable 'pos'
-      delay(15);                       // waits 15ms for the servo to reach the position
-    }
-  }
-  }*/
-void servoAA(int direct, int duration, int lock) { //0 for CW; 1 for CCW
-  int servoSpeedDirect;
-  if (direct == 1) {
-    servoSpeedDirect = C_CLOCKWISE;
-    lock += 1500;
-  }
-  else {
-    servoSpeedDirect = CLOCKWISE;
-    lock = 1500 - lock;
-  }
-  //MG_servoB.detach();
- /* MG_servoC.detach();
-  MG_servoD.detach();*/
-
-  MG_servoA.writeMicroseconds(servoSpeedDirect);
-  fakeDelay(duration);
-  MG_servoA.writeMicroseconds(lock); // lock
-  
-  /*//MG_servoB.attach(servoB);
-  MG_servoC.attach(servoC);
-  MG_servoD.attach(servoD);*/
-}
-
-void servoBB(int direct, int duration, int lock) { //0 for CW; 1 for CCW
-  int servoSpeedDirect;
-  if (direct == 1) {
-    servoSpeedDirect = C_CLOCKWISE;
-    lock += 1500;
-  }
-  else {
-    servoSpeedDirect = CLOCKWISE;
-    lock = 1500 - lock;
-  }
-
-  
-  //MG_servoA.detach();
- /* MG_servoC.detach();
-  MG_servoD.detach();*/
-
-  MG_servoB.writeMicroseconds(servoSpeedDirect);
-  fakeDelay(duration);
-  MG_servoB.writeMicroseconds(lock); // lock
-  
-  /*//MG_servoB.attach(servoA);
-  MG_servoC.attach(servoC);
-  MG_servoD.attach(servoD);*/
-}
-//void servoBB(int preAngle, int nextAngle) { //0 for CW; 1 for CCW
-//  int pos = 0;
-//  if (nextAngle > preAngle) {
-//    for (pos = preAngle; pos <= nextAngle; pos += motorStep) { // goes from 0 degrees to 180 degrees
-//      // in steps of 1 degree
-//      MG_servoB.write(pos);              // tell servo to go to position in variable 'pos'
-//      delay(15);                       // waits 15ms for the servo to reach the position
-//    }
-//  }
-//  else {
-//    for (pos = preAngle; pos >= nextAngle; pos -= motorStep) { // goes from 180 degrees to 0 degrees
-//      MG_servoB.write(pos);              // tell servo to go to position in variable 'pos'
-//      delay(15);                       // waits 15ms for the servo to reach the position
-//    }
-//  }
-//}
-
-void servoCC(int direct, int duration, int lock) { //0 for CW; 1 for CCW
-  int servoSpeedDirect;
-  if (direct == 1) {
-    servoSpeedDirect = C_CLOCKWISE;
-    lock += 1500;
-  }
-  else {
-    servoSpeedDirect = CLOCKWISE;
-    lock = 1500 - lock;
-  }
-  MG_servoC.writeMicroseconds(servoSpeedDirect);
-  fakeDelay(duration);
-  MG_servoC.writeMicroseconds(lock); // lock
-}
-
-void servoDD(int direct, int duration, int lock) { //0 for CW; 1 for CCW
-  int servoSpeedDirect;
-  if (direct == 1) {
-    servoSpeedDirect = C_CLOCKWISE;
-    lock += 1500;
-  }
-  else {
-    servoSpeedDirect = CLOCKWISE;
-    lock = 1500 - lock;
-  }
-  MG_servoD.writeMicroseconds(servoSpeedDirect);
-  fakeDelay(duration);
-  MG_servoD.writeMicroseconds(lock); // lock
-}
-
-void armExtend() {
-
-  MG_servoA.writeMicroseconds(1530); // lock
-  MG_servoB.writeMicroseconds(1520); // lock
-}
-
-void antiRollover(int rotateTime) {
-  if (anti_roll_extend_flag == false) {
-    sgServo_R.writeMicroseconds(C_CLOCKWISE);
-    sgServo_L.writeMicroseconds(CLOCKWISE);
-    fakeDelay(rotateTime);
-    sgServo_R.writeMicroseconds(STOP);
-    sgServo_L.writeMicroseconds(STOP);
-    anti_roll_extend_flag = true;
-  }
-  else {
-    sgServo_R.writeMicroseconds(CLOCKWISE);
-    sgServo_L.writeMicroseconds(C_CLOCKWISE);
-    fakeDelay(rotateTime);
-    sgServo_R.writeMicroseconds(STOP);
-    sgServo_L.writeMicroseconds(STOP);
-  }
 }
 
 void move(int motor, int speed, int direction) {
@@ -373,6 +391,7 @@ void move_forward(int duration) {
   move(3, roboSpeed, direct3); // C forward
   move(4, roboSpeed, direct4); // D forward
   fakeDelay(duration);
+  stop(direct1, direct2, direct3, direct4);
 }
 
 void move_backward(int duration) {
@@ -382,6 +401,7 @@ void move_backward(int duration) {
   move(3, roboSpeed, direct3); // C backward
   move(4, roboSpeed, direct4); // D backward
   fakeDelay(duration);
+  stop(direct1, direct2, direct3, direct4);
 }
 
 void move_right(int duration) {
@@ -391,6 +411,7 @@ void move_right(int duration) {
   move(3, roboSpeed, direct3); // C backward
   move(4, roboSpeed, direct4); // D forward
   fakeDelay(duration);
+  stop(direct1, direct2, direct3, direct4);
 }
 
 void move_left(int duration) {
@@ -400,6 +421,7 @@ void move_left(int duration) {
   move(3, roboSpeed, direct3); // C forward
   move(4, roboSpeed, direct4); // D backward
   fakeDelay(duration);
+  stop(direct1, direct2, direct3, direct4);
 }
 
 void rotate_cw(int duration) {
@@ -409,6 +431,7 @@ void rotate_cw(int duration) {
   move(3, roboSpeed, direct3); // C backward
   move(4, roboSpeed, direct4); // D backward
   fakeDelay(duration);
+  stop(direct1, direct2, direct3, direct4);
 }
 
 void rotate_ccw(int duration) {
@@ -418,6 +441,7 @@ void rotate_ccw(int duration) {
   move(3, roboSpeed, direct3); // C backward
   move(4, roboSpeed, direct4); // D backward
   fakeDelay(duration);
+  stop(direct1, direct2, direct3, direct4);
 }
 
 void stop(int direct1, int direct2, int direct3, int direct4) {
